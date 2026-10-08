@@ -156,15 +156,37 @@ await test('apply() 注册出全部 12 个工具，且结构合法', () => {
   const names = harness.registered.map((d) => d.name)
   assert.deepEqual(names.slice().sort(), EXPECTED_TOOLS.slice().sort(), '工具集合与预期不一致')
   assert.equal(new Set(names).size, names.length, '工具名重复')
+  // 官方 @deepseek-ai/dsh-tools 的 value schema DSL 子集（runSchemaCompiler / ANNOTATION_KEYS）。
+  // stub 版的 defineTool 是恒等函数，写错的 schema 在离线测试里不会被发现 —— 真机上会在
+  // apply() 当场抛 JsonSchemaError（整个预设起不来）。所以这里做一次静态等价检查。
+  const VALUE_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'null', 'array', 'object', 'json'])
+  const ANNOTATION_KEYS = new Set(['description', 'title', 'default', 'examples'])
   for (const def of harness.registered) {
     assert.ok(def.description && def.description.length > 20, `${def.name} 缺 description`)
     assert.equal(typeof def.execute, 'function', `${def.name} 缺 execute`)
     assert.ok(def.parameters && typeof def.parameters === 'object', `${def.name} 缺 parameters`)
     for (const [key, spec] of Object.entries(def.parameters)) {
-      assert.ok(spec && typeof spec.type === 'string', `${def.name}.${key} 缺 type`)
-      assert.ok(spec.description, `${def.name}.${key} 缺 description（工具 schema 要求）`)
+      const at = `${def.name}.${key}`
+      assert.ok(spec && typeof spec.type === 'string', `${at} 缺 type`)
+      assert.ok(VALUE_TYPES.has(spec.type), `${at}.type=${spec.type} 不在官方子集内`)
+      assert.ok(spec.description, `${at} 缺 description（工具 schema 要求）`)
+      if (spec.type === 'object') {
+        assert.equal(typeof spec.additionalProperties, 'boolean',
+          `${at}：type:'object' 必须显式带 additionalProperties:true/false（否则官方 defineTool 抛 JsonSchemaError）；任意形状请用 type:'json'`)
+      }
+      if (spec.type === 'array') {
+        assert.ok(spec.items && typeof spec.items === 'object', `${at}：type:'array' 必须带 items`)
+      }
+      for (const k of Object.keys(spec)) {
+        assert.ok(
+          k === 'type' || k === 'required' || k === 'enum' || k === 'const' || k === 'items' ||
+          k === 'properties' || k === 'additionalProperties' || ANNOTATION_KEYS.has(k),
+          `${at} 用了官方不认的键：${k}`
+        )
+      }
     }
     assert.ok(def.output && def.output.schema, `${def.name} 缺 output.schema`)
+    assert.equal(def.output.schema.additionalProperties, true, `${def.name}.output.schema 必须是开放对象`)
     assert.equal(typeof def.output.render, 'function', `${def.name} 缺 output.render`)
   }
 })

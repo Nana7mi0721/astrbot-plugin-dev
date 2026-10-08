@@ -1,6 +1,6 @@
 {
   "name": "dsh-astrbot-plugin-dev",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "DSH ↔ AstrBot 插件开发桥：隔离启动/接管 AstrBot 实例、自签 JWT 调 Dashboard/Open API、热重载、端到端消息注入验证，附带 AstrBot 插件开发技能包",
@@ -31,7 +31,8 @@
   },
   "scripts": {
     "test": "node --import ./test/stub/register.mjs test/smoke.mjs",
-    "live": "node --import ./test/stub/register.mjs test/live.mjs"
+    "live": "node --import ./test/stub/register.mjs test/live.mjs",
+    "verify:schema": "node test/real-schema.mjs"
   },
   "dsh": {
     "bundle": {

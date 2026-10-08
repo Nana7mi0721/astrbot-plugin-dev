@@ -127,8 +127,9 @@ agent 会 `astrbot_chat(message="/help")`——这条走的是完整事件流水
 ## 离线自测
 
 ```bash
-npm test    # 纯离线：不需要 DSH、不需要 AstrBot、不联网（12 个用例）
-npm run live  # 真机：真的拉起一个隔离 AstrBot 实例跑全链路（加 --clean 清空测试根重来）
+npm test               # 纯离线：不需要 DSH、不需要 AstrBot、不联网（12 个用例）
+npm run live           # 真机：真的拉起一个隔离 AstrBot 实例跑全链路（加 --clean 清空测试根重来）
+npm run verify:schema  # 用**官方** defineTool 过一遍工具定义（要本机装了 DSH 桌面端；找不到就 SKIP）
 ```
 
 `npm test` 用 `test/stub/` 里的 loader 钩子（`register.mjs` + `hooks.mjs`）把
@@ -136,6 +137,7 @@ npm run live  # 真机：真的拉起一个隔离 AstrBot 实例跑全链路（�
 `lib/index.js`，覆盖：
 
 - 工具集合与 schema 结构（12 个，名字唯一，每项有 type + description）
+- **官方 value schema 子集的静态等价检查**（见下）
 - 配置三级回退与落盘
 - volatile 字段的 `{ get() }` 形态（DSH ≥ 0.2 会把 volatile 冻结成引用）
 - **自签 JWT 用独立实现的 HMAC 对拍**（签名、alg、payload、exp）
@@ -153,6 +155,15 @@ npm run live  # 真机：真的拉起一个隔离 AstrBot 实例跑全链路（�
 `npm test` 曾经抓到过一个真 bug：`astrbot_config` 的返回值引用了 `if` 块内声明的变量，
 一改设置就 `ReferenceError`，而工具的 try/catch 把它吞成了 `{ error: 'patchResult is not defined' }`
 ——**只看工具返回成功与否是发现不了的**，必须断言"不该有 error 字段"。
+
+`npm run verify:schema` 抓到过**第二个、更凶的** bug：工具的 `parameters` 不是普通 JSON Schema，
+而是官方 `@deepseek-ai/dsh-tools` 的 value schema DSL —— `type: 'object'` 必须**显式**带
+`additionalProperties: true|false`，否则 `defineTool` 当场抛
+`JsonSchemaError: parameters.body.additionalProperties must be explicitly true or false`。
+`astrbot_api` 的 `body` 犯了这条，而 `test/stub/dsh-tools.mjs` 里的 `defineTool` 是恒等函数，
+离线冒烟**根本看不见**——真机上会让整个预设起不来。修法：任意形状的 JSON 体改用 `type: 'json'`。
+因为官方包被打进 Electron 的 `app.asar`（普通 node 读不到 asar），这个校验脚本会自己用
+`ELECTRON_RUN_AS_NODE=1 <DeepSeek Harness.exe>` 重启一遍再跑；找不到 DSH 安装就 SKIP，不会红。
 
 ---
 
@@ -181,8 +192,9 @@ astrbot-plugin-dev/
 │   ├── astrbot-plugin-dev/     # 写代码：规范 + 配方 + 坑 + 范例索引
 │   └── astrbot-plugin-debug/   # 验证：端点表 + 剧本 + 排错树
 └── test/
-    ├── smoke.mjs           # 离线 12 用例
+    ├── smoke.mjs           # 离线 12 用例（含官方 schema 子集的静态检查）
     ├── live.mjs            # 真机全链路
+    ├── real-schema.mjs     # 官方 defineTool 校验（自动用 Electron-as-node 读 app.asar）
     └── stub/               # DSH 依赖的离线替身
 ```
 
