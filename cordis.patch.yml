@@ -1,0 +1,188 @@
+# dsh-astrbot-plugin-dev bundle patch
+#
+# 两件事：
+#  1) 注册 agent 预设 astrbot-plugin-dev ——「AstrBot 插件开发」
+#  2) 在该预设内部挂上桥插件 dsh-astrbot-plugin-dev —— 提供 astrbot_status / astrbot_start /
+#     astrbot_deploy / astrbot_reload / astrbot_chat / astrbot_logs 等 12 个 astrbot_* 工具
+#
+# 为什么工具行写在**预设内部**而不是树根层级：树根层级的 row 注册出来的工具对所有预设可见，
+# 而 astrbot_* 只在 AstrBot 插件开发会话里才有意义。写进 config.plugins 后，这些工具只在该预设
+# 的会话里出现，其他预设（standard / anima / …）的工具表和上下文完全不受影响。
+#
+# skills 随包提供（files 里有 skills/），通过 skill-filesystem 的 customSkillDirs 挂载。
+# customSkillDirs 只认**绝对路径**（相对路径按 host 进程 CWD 解析，不可用），所以这里指向一个
+# 稳定的技能根 `~/.dsh/skills-astrbot-plugin-dev`（与 for dsh 工作区里 skills-anima-prompt 同一约定）。
+#
+# 为什么不用「源码路径」也「不用装机副本路径」：前者在换机/换目录后失效，后者是 node_modules 里的
+# 文件（工作区规范禁止改安装副本，而且 bundle 一更新路径就可能变）。用一个独立技能根，改完 skill
+# 同步一次即可，两种场景（本地开发 / 从 GitHub 装）行为一致：
+#
+#   robocopy "E:\Study\github program\for dsh\astrbot-plugin-dev\skills" ^
+#            "%USERPROFILE%\.dsh\skills-astrbot-plugin-dev" /MIR /XD .git /XF env.local.json
+#
+# 若 DSH 主目录不是默认 %USERPROFILE%\.dsh，把下面的路径换成实际值。
+#
+# 装到 profile 后：新建 agent 时选「AstrBot 插件开发」即可。
+
+- insert:
+    - id: preset-astrbot-plugin-dev
+      name: "@deepseek-ai/dsh-agent-preset"
+      config:
+        id: astrbot-plugin-dev
+        name: AstrBot 插件开发
+        description: >-
+          开发与调试 AstrBot 插件：查框架开发规范与 API、把插件部署进 AstrBot 实例并热重载、
+          用 WebChat 通道做端到端功能验证、读后端日志与加载失败列表。自带可启动的隔离测试实例。
+        order: 7
+        plugins:
+          - id: persona
+            name: "@deepseek-ai/dsh-persona"
+            config:
+              prefix: |
+                你是「AstrBot 插件开发」助手。你手里有一个真实可跑的 AstrBot 实例通道和一个本地插件项目，
+                目标是让插件的**功能真的在 AstrBot 里跑通**，而不是"代码看起来对"。
+
+                ## 你手里有什么
+                宿主插件 dsh-astrbot-plugin-dev 提供 12 个工具，分四组：
+                - 环境：`astrbot_status`（安装位置/版本/实例是否在线/端口/jwt 是否可读/插件数与失败列表）、
+                  `astrbot_config`（指定 AstrBot 安装目录与隔离测试根）、`astrbot_python`
+                  （用 AstrBot 自带的 CPython 跑命令 —— 系统 python 里**没有** astrbot 依赖）。
+                - 实例：`astrbot_start`（起一个受管的隔离实例，或接管已在同端口应答的实例并返回 external:true）、
+                  `astrbot_stop`（**只**停本插件起的实例）、`astrbot_token`（从 data/cmd_config.json 的
+                  jwt_secret 本地自签管理员 JWT）。
+                - 插件：`astrbot_plugins`（list/failed/detail/config/schema，**改完代码第一件事是看 failed**）、
+                  `astrbot_reload`（热重载 + 自动复查失败列表）、`astrbot_deploy`
+                  （本地插件目录 → 实例 data/plugins/<名>，自动备份 + md5 对拍 + 热重载）、
+                  `astrbot_api`（带鉴权调任意 dashboard 路由）。
+                - 验证：`astrbot_chat`（★把一条消息注入真实事件流水线并等回复 —— AstrBot 的 WebChat 适配器
+                  是无条件启动的内置平台，不接真实 QQ/Telegram 也能跑通完整 pipeline）、
+                  `astrbot_logs`（后端日志文件 / SSE 实时流 / 历史）。
+
+                ## 先加载 skill 再动手
+                - 插件该长什么样、有哪些装饰器/事件 API/消息组件/配置项、25 条硬性守则 → `astrbot-plugin-dev`
+                - 怎么启动、怎么鉴权、怎么把行为验出来、错在哪 → `astrbot-plugin-debug`
+                这两份是本预设的知识底座；遇到 API 细节先查它们，再查 AstrBot 源码（安装根下 `backend/app/astrbot/`）。
+
+                ## 铁律
+                1. **先看后做**：`astrbot_status` → 读插件现状 → 再动手。不要凭记忆写 API。
+                2. **改完必验**：`astrbot_deploy`（或 `astrbot_reload`）→ 看返回的 `failed` 字段 → `astrbot_chat`
+                  注入一条命中该功能的真实消息 → 看回复 `astrbot_logs` 确认无 traceback。**只改代码不验证等于没做。**
+                3. **绝不杀 AstrBot 进程**。用户机器上通常有一个桌面实例（默认 dashboard 端口 6185）在跑；
+                  `astrbot_start` 会避开它并另起 6186，`astrbot_stop` 对接管来的实例一律拒绝。
+                 禁止用 shell 的 taskkill / Stop-Process 去停 AstrBot。
+                4. **插件只触碰公开 API 面**（`astrbot.api.*`），不要 import `astrbot.core.*` 的内部实现；
+                 日志一律 `from astrbot.api import logger`（`import logging` 是插件市场上架的硬性拒绝项）。
+                5. **热重载不是重启**：AstrBot 的重载是「把插件模块从 sys.modules 剔除后重新 import」，
+                  所以模块级全局状态会丢、插件实例会重新构造、`initialize()` 会再跑一次。别把状态放模块级全局。
+                6. 需要真实平台才能验的行为（QQ/Telegram 适配器、平台专属字段），明确告诉用户"这里只能靠
+                  隔离实例 + 日志推断"，不要假装验过了。WebChat 通道验不了的部分要说清楚。
+
+                ## 工作目录
+                插件项目通常在 DSH 工作区之外（例如 E:\Study\github program\astrbot_plugin_quillplus），
+                AstrBot 安装目录是 D:\Program\AstrBot。两者都可以由 astrbot_config 覆盖，不要硬编码进代码。
+
+          - id: agent-instructions
+            name: "@deepseek-ai/dsh-agent-instructions"
+            config:
+              maxBytes: 65536
+
+          - id: tool-bash
+            name: "@deepseek-ai/dsh-tool-bash"
+          - id: tool-pwsh
+            name: "@deepseek-ai/dsh-tool-pwsh"
+            disabled: true
+          - id: tool-fs
+            name: "@deepseek-ai/dsh-tool-fs"
+          - id: tool-fs-search
+            name: "@deepseek-ai/dsh-tool-fs-search"
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: "@deepseek-ai/dsh-tool-jobs"
+
+          - id: skill-filesystem
+            name: "@deepseek-ai/dsh-skill-filesystem"
+            config:
+              customSkillDirs:
+                - C:/Users/REISEN/.dsh/skills-astrbot-plugin-dev
+          - id: tool-skill
+            name: "@deepseek-ai/dsh-tool-skill"
+
+          # ── 桥插件本体：astrbot_* 12 个工具 ──────────────────────────────
+          # desktopRoot 留空 = 自动探测（D:\Program\AstrBot 等）；首次跑 astrbot_status 后
+          # 用 astrbot_config(desktop_root=...) 固化，或直接在这里写死。
+          - id: astrbot-bridge
+            name: dsh-astrbot-plugin-dev
+            config:
+              desktopRoot: ''
+              defaultRoot: ''
+              defaultPort: 6186
+              pythonPath: ''
+
+          - id: command-goal
+            name: "@deepseek-ai/dsh-command-goal"
+          - id: tool-goal
+            name: "@deepseek-ai/dsh-tool-goal"
+          - id: tool-ask-user
+            name: "@deepseek-ai/dsh-tool-ask-user"
+          - id: tool-todo
+            name: "@deepseek-ai/dsh-tool-todo"
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: "@deepseek-ai/dsh-tool-web"
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: "@deepseek-ai/dsh-tool-present"
+
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: "@deepseek-ai/dsh-tool-subagent-control"
+              - id: tool-subagent-list-agents
+                name: "@deepseek-ai/dsh-tool-subagent-control/list-agents"
+              - id: tool-subagent
+                name: "@deepseek-ai/dsh-tool-subagent"
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+                  backgroundMode: continuable
+              - id: tool-subagent-fork
+                name: "@deepseek-ai/dsh-tool-subagent"
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+                  backgroundMode: continuable
+              - id: tool-workflow
+                name: "@deepseek-ai/dsh-tool-workflow"
+              - id: workflow-ptc
+                name: "@deepseek-ai/dsh-workflow-ptc"
+                config:
+                  provider: spawn
+
+          # 插件调试常常是"贴一大段 traceback + 一大段源码"的活，把裁剪阈值调大一些，
+          # 免得关键栈帧被 tool-result-pruner 裁掉。
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: "@deepseek-ai/dsh-compaction-basic"
+              - id: command-compact
+                name: "@deepseek-ai/dsh-command-compact"
+              - id: tool-result-pruner
+                name: "@deepseek-ai/dsh-compaction-tool-result-pruner"
+                config:
+                  thresholdChars: 32768
+                  headChars: 24576
+                  tailChars: 4096

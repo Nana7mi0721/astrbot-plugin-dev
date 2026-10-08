@@ -1,0 +1,57 @@
+{
+  "name": "dsh-astrbot-plugin-dev",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH ↔ AstrBot 插件开发桥：隔离启动/接管 AstrBot 实例、自签 JWT 调 Dashboard/Open API、热重载、端到端消息注入验证，附带 AstrBot 插件开发技能包",
+  "keywords": [
+    "dsh",
+    "dsh-bundle",
+    "astrbot",
+    "plugin-development"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nana7mi0721/astrbot-plugin-dev.git"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib/*": "./lib/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "test": "node --import ./test/stub/register.mjs test/smoke.mjs",
+    "live": "node --import ./test/stub/register.mjs test/live.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "manifestVersion": 1
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  }
+}

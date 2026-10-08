@@ -1,0 +1,12 @@
+# 依赖与构建产物
+node_modules/
+*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 临时探针（开发期随手写的脚本，不进仓库）
+.tmp-*
